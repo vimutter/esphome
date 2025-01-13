@@ -7,8 +7,12 @@
 #include "esphome/core/hal.h"
 
 #ifdef USE_ESP32
-#include <esp_adc_cal.h>
-#include "driver/adc.h"
+//#include <esp_adc_cal.h>
+#include <esp_adc/adc_cali.h>             // Migration from 4.4 to 5.0
+#include "esp_adc/adc_cali_scheme.h"      // Migration from 4.4 to 5.0
+//#include "driver/adc.h"
+#include "esp_adc/adc_oneshot.h"          // Migration from 4.4 to 5.0
+//#include "esp_adc/adc_continuous.h"     // Migration from 4.4 to 5.0
 #endif
 
 namespace esphome {
@@ -32,17 +36,25 @@ static const adc_atten_t ADC_ATTEN_DB_12_COMPAT = ADC_ATTEN_DB_11;
 class ADCSensor : public sensor::Sensor, public PollingComponent, public voltage_sampler::VoltageSampler {
  public:
 #ifdef USE_ESP32
+/*
   /// Set the attenuation for this pin. Only available on the ESP32.
   void set_attenuation(adc_atten_t attenuation) { this->attenuation_ = attenuation; }
   void set_channel1(adc1_channel_t channel) {
     this->channel1_ = channel;
-    this->channel2_ = ADC2_CHANNEL_MAX;
+
+//#ifdef USE_ADC2
+//    this->channel2_ = ADC_CHANNEL_MAX;
   }
+
   void set_channel2(adc2_channel_t channel) {
     this->channel2_ = channel;
-    this->channel1_ = ADC1_CHANNEL_MAX;
+    this->channel1_ = ADC_CHANNEL_MAX;
+#endif
+
   }
+
   void set_autorange(bool autorange) { this->autorange_ = autorange; }
+*/
 #endif
 
   /// Update ADC values
@@ -75,15 +87,21 @@ class ADCSensor : public sensor::Sensor, public PollingComponent, public voltage
 #endif
 
 #ifdef USE_ESP32
-  adc_atten_t attenuation_{ADC_ATTEN_DB_0};
-  adc1_channel_t channel1_{ADC1_CHANNEL_MAX};
-  adc2_channel_t channel2_{ADC2_CHANNEL_MAX};
+
+  //adc_atten_t attenuation_{ADC_ATTEN_DB_0};
+  //adc1_channel_t channel1_{ADC_CHANNEL_MAX};
+  //adc_channel_t channel1_{ADC_CHANNEL_MAX}; // TEST
+#ifdef USE_ADC2
+  //adc2_channel_t channel2_{ADC_CHANNEL_MAX};
+#endif
   bool autorange_{false};
-#if ESP_IDF_VERSION_MAJOR >= 5
+/*
+#if (ESP_IDF_VERSION_MAJOR >= 5 && ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(5, 2, 0))
   esp_adc_cal_characteristics_t cal_characteristics_[SOC_ADC_ATTEN_NUM] = {};
 #else
   esp_adc_cal_characteristics_t cal_characteristics_[ADC_ATTEN_MAX] = {};
 #endif
+*/
 #endif
 };
 

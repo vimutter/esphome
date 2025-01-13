@@ -30,76 +30,28 @@ From the below patch versions (and 5.2+) ADC_ATTEN_DB_11 is deprecated and repla
 """
 
 ATTENUATION_MODES = {
-    "0db": cg.global_ns.ADC_ATTEN_DB_0,
-    "2.5db": cg.global_ns.ADC_ATTEN_DB_2_5,
-    "6db": cg.global_ns.ADC_ATTEN_DB_6,
-    "11db": adc_ns.ADC_ATTEN_DB_12_COMPAT,
-    "12db": adc_ns.ADC_ATTEN_DB_12_COMPAT,
+    #"0db": cg.global_ns.ADC_ATTEN_DB_0,
+    #"2.5db": cg.global_ns.ADC_ATTEN_DB_2_5,
+    #"6db": cg.global_ns.ADC_ATTEN_DB_6,
+    #"11db": adc_ns.ADC_ATTEN_DB_12_COMPAT,
+    #"12db": adc_ns.ADC_ATTEN_DB_12_COMPAT,
     "auto": "auto",
 }
 
 adc1_channel_t = cg.global_ns.enum("adc1_channel_t")
 adc2_channel_t = cg.global_ns.enum("adc2_channel_t")
 
-# From https://github.com/espressif/esp-idf/blob/master/components/driver/include/driver/adc_common.h
+# From https://github.com/espressif/esp-idf/blob/v5.2.2/components/hal/include/hal/adc_types.h
 # pin to adc1 channel mapping
 ESP32_VARIANT_ADC1_PIN_TO_CHANNEL = {
-    VARIANT_ESP32: {
-        36: adc1_channel_t.ADC1_CHANNEL_0,
-        37: adc1_channel_t.ADC1_CHANNEL_1,
-        38: adc1_channel_t.ADC1_CHANNEL_2,
-        39: adc1_channel_t.ADC1_CHANNEL_3,
-        32: adc1_channel_t.ADC1_CHANNEL_4,
-        33: adc1_channel_t.ADC1_CHANNEL_5,
-        34: adc1_channel_t.ADC1_CHANNEL_6,
-        35: adc1_channel_t.ADC1_CHANNEL_7,
-    },
-    VARIANT_ESP32S2: {
-        1: adc1_channel_t.ADC1_CHANNEL_0,
-        2: adc1_channel_t.ADC1_CHANNEL_1,
-        3: adc1_channel_t.ADC1_CHANNEL_2,
-        4: adc1_channel_t.ADC1_CHANNEL_3,
-        5: adc1_channel_t.ADC1_CHANNEL_4,
-        6: adc1_channel_t.ADC1_CHANNEL_5,
-        7: adc1_channel_t.ADC1_CHANNEL_6,
-        8: adc1_channel_t.ADC1_CHANNEL_7,
-        9: adc1_channel_t.ADC1_CHANNEL_8,
-        10: adc1_channel_t.ADC1_CHANNEL_9,
-    },
-    VARIANT_ESP32S3: {
-        1: adc1_channel_t.ADC1_CHANNEL_0,
-        2: adc1_channel_t.ADC1_CHANNEL_1,
-        3: adc1_channel_t.ADC1_CHANNEL_2,
-        4: adc1_channel_t.ADC1_CHANNEL_3,
-        5: adc1_channel_t.ADC1_CHANNEL_4,
-        6: adc1_channel_t.ADC1_CHANNEL_5,
-        7: adc1_channel_t.ADC1_CHANNEL_6,
-        8: adc1_channel_t.ADC1_CHANNEL_7,
-        9: adc1_channel_t.ADC1_CHANNEL_8,
-        10: adc1_channel_t.ADC1_CHANNEL_9,
-    },
-    VARIANT_ESP32C3: {
-        0: adc1_channel_t.ADC1_CHANNEL_0,
-        1: adc1_channel_t.ADC1_CHANNEL_1,
-        2: adc1_channel_t.ADC1_CHANNEL_2,
-        3: adc1_channel_t.ADC1_CHANNEL_3,
-        4: adc1_channel_t.ADC1_CHANNEL_4,
-    },
-    VARIANT_ESP32C2: {
-        0: adc1_channel_t.ADC1_CHANNEL_0,
-        1: adc1_channel_t.ADC1_CHANNEL_1,
-        2: adc1_channel_t.ADC1_CHANNEL_2,
-        3: adc1_channel_t.ADC1_CHANNEL_3,
-        4: adc1_channel_t.ADC1_CHANNEL_4,
-    },
     VARIANT_ESP32C6: {
-        0: adc1_channel_t.ADC1_CHANNEL_0,
-        1: adc1_channel_t.ADC1_CHANNEL_1,
-        2: adc1_channel_t.ADC1_CHANNEL_2,
-        3: adc1_channel_t.ADC1_CHANNEL_3,
-        4: adc1_channel_t.ADC1_CHANNEL_4,
-        5: adc1_channel_t.ADC1_CHANNEL_5,
-        6: adc1_channel_t.ADC1_CHANNEL_6,
+        0: adc1_channel_t.ADC_CHANNEL_0,    # ADC1_CHANNEL_0,
+        1: adc1_channel_t.ADC_CHANNEL_1,
+        2: adc1_channel_t.ADC_CHANNEL_2,
+        3: adc1_channel_t.ADC_CHANNEL_3,
+        4: adc1_channel_t.ADC_CHANNEL_4,
+        5: adc1_channel_t.ADC_CHANNEL_5,
+        6: adc1_channel_t.ADC_CHANNEL_6,
     },
     VARIANT_ESP32H2: {
         0: adc1_channel_t.ADC1_CHANNEL_0,

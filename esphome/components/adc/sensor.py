@@ -7,7 +7,7 @@ from esphome.core import CORE
 from esphome.components import sensor, voltage_sampler
 from esphome.components.esp32 import get_esp32_variant
 from esphome.const import (
-    CONF_ATTENUATION,
+    #CONF_ATTENUATION,
     CONF_ID,
     CONF_NUMBER,
     CONF_PIN,
@@ -18,7 +18,7 @@ from esphome.const import (
     UNIT_VOLT,
 )
 from . import (
-    ATTENUATION_MODES,
+    #ATTENUATION_MODES,
     ESP32_VARIANT_ADC1_PIN_TO_CHANNEL,
     ESP32_VARIANT_ADC2_PIN_TO_CHANNEL,
     adc_ns,
@@ -32,23 +32,23 @@ AUTO_LOAD = ["voltage_sampler"]
 CONF_SAMPLES = "samples"
 
 
-_attenuation = cv.enum(ATTENUATION_MODES, lower=True)
+#_attenuation = cv.enum(ATTENUATION_MODES, lower=True)
 
 
 def validate_config(config):
     if config[CONF_RAW] and config.get(CONF_ATTENUATION, None) == "auto":
         raise cv.Invalid("Automatic attenuation cannot be used when raw output is set")
 
-    if config.get(CONF_ATTENUATION, None) == "auto" and config.get(CONF_SAMPLES, 1) > 1:
-        raise cv.Invalid(
-            "Automatic attenuation cannot be used when multisampling is set"
-        )
-    if config.get(CONF_ATTENUATION) == "11db":
-        _LOGGER.warning(
-            "`attenuation: 11db` is deprecated, use `attenuation: 12db` instead"
-        )
-        # Alter value here so `config` command prints the recommended change
-        config[CONF_ATTENUATION] = _attenuation("12db")
+    #if config.get(CONF_ATTENUATION, None) == "auto" and config.get(CONF_SAMPLES, 1) > 1:
+    #    raise cv.Invalid(
+    #        "Automatic attenuation cannot be used when multisampling is set"
+    #    )
+    #if config.get(CONF_ATTENUATION) == "11db":
+    #    _LOGGER.warning(
+    #        "`attenuation: 11db` is deprecated, use `attenuation: 12db` instead"
+    #    )
+    #    # Alter value here so `config` command prints the recommended change
+    #    config[CONF_ATTENUATION] = _attenuation("12db")
 
     return config
 
@@ -84,9 +84,9 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.Required(CONF_PIN): validate_adc_pin,
             cv.Optional(CONF_RAW, default=False): cv.boolean,
-            cv.SplitDefault(CONF_ATTENUATION, esp32="0db"): cv.All(
-                cv.only_on_esp32, _attenuation
-            ),
+            #cv.SplitDefault(CONF_ATTENUATION, esp32="0db"): cv.All(
+            #    cv.only_on_esp32, _attenuation
+            #),
             cv.Optional(CONF_SAMPLES, default=1): cv.int_range(min=1, max=255),
         }
     )
@@ -113,11 +113,11 @@ async def to_code(config):
     cg.add(var.set_output_raw(config[CONF_RAW]))
     cg.add(var.set_sample_count(config[CONF_SAMPLES]))
 
-    if attenuation := config.get(CONF_ATTENUATION):
-        if attenuation == "auto":
-            cg.add(var.set_autorange(cg.global_ns.true))
-        else:
-            cg.add(var.set_attenuation(attenuation))
+    #if attenuation := config.get(CONF_ATTENUATION):
+    #    if attenuation == "auto":
+    #        cg.add(var.set_autorange(cg.global_ns.true))
+    #    else:
+    #        cg.add(var.set_attenuation(attenuation))
 
     if CORE.is_esp32:
         variant = get_esp32_variant()
@@ -127,10 +127,10 @@ async def to_code(config):
             and pin_num in ESP32_VARIANT_ADC1_PIN_TO_CHANNEL[variant]
         ):
             chan = ESP32_VARIANT_ADC1_PIN_TO_CHANNEL[variant][pin_num]
-            cg.add(var.set_channel1(chan))
+            #cg.add(var.set_channel1(chan))
         elif (
             variant in ESP32_VARIANT_ADC2_PIN_TO_CHANNEL
             and pin_num in ESP32_VARIANT_ADC2_PIN_TO_CHANNEL[variant]
         ):
             chan = ESP32_VARIANT_ADC2_PIN_TO_CHANNEL[variant][pin_num]
-            cg.add(var.set_channel2(chan))
+            #cg.add(var.set_channel2(chan))

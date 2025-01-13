@@ -11,85 +11,54 @@ ADC_MODE(ADC_VCC)
 #endif
 #endif
 
-#ifdef USE_RP2040
-#ifdef CYW43_USES_VSYS_PIN
-#include "pico/cyw43_arch.h"
-#endif
-#include <hardware/adc.h>
-#endif
-
 namespace esphome {
 namespace adc {
 
 static const char *const TAG = "adc";
 
-// 13-bit for S2, 12-bit for all other ESP32 variants
-#ifdef USE_ESP32
-static const adc_bits_width_t ADC_WIDTH_MAX_SOC_BITS = static_cast<adc_bits_width_t>(ADC_WIDTH_MAX - 1);
-
-#ifndef SOC_ADC_RTC_MAX_BITWIDTH
-#if USE_ESP32_VARIANT_ESP32S2
-static const int32_t SOC_ADC_RTC_MAX_BITWIDTH = 13;
+/*---------------------------------------------------------------
+        ADC General Macros
+---------------------------------------------------------------*/
+//ADC1 Channels
+#if CONFIG_IDF_TARGET_ESP32
+#define ADC1_CHAN0          ADC_CHANNEL_4
+#define ADC1_CHAN1          ADC_CHANNEL_5
 #else
-static const int32_t SOC_ADC_RTC_MAX_BITWIDTH = 12;
-#endif
+#define ADC1_CHAN0          ADC_CHANNEL_0    // GPIO0
+#define ADC1_CHAN1          ADC_CHANNEL_1    // GPIO1
+#define ADC1_CHAN2          ADC_CHANNEL_2    // GPIO2
+#define ADC1_CHAN3          ADC_CHANNEL_3    // GPIO3
+#define ADC1_CHAN4          ADC_CHANNEL_4    // GPIO4
+#define ADC1_CHAN5          ADC_CHANNEL_5    // GPIO5
+#define ADC1_CHAN6          ADC_CHANNEL_6    // GPIO6
 #endif
 
-static const int ADC_MAX = (1 << SOC_ADC_RTC_MAX_BITWIDTH) - 1;    // 4095 (12 bit) or 8191 (13 bit)
-static const int ADC_HALF = (1 << SOC_ADC_RTC_MAX_BITWIDTH) >> 1;  // 2048 (12 bit) or 4096 (13 bit)
+#if (SOC_ADC_PERIPH_NUM >= 2) && !CONFIG_IDF_TARGET_ESP32C3
+/**
+ * On ESP32C3, ADC2 is no longer supported, due to its HW limitation.
+ * Search for errata on espressif website for more details.
+ */
+#define USE_ADC2            1
 #endif
 
-#ifdef USE_RP2040
-extern "C"
+#if USE_ADC2
+//ADC2 Channels
+#if CONFIG_IDF_TARGET_ESP32
+#define ADC2_CHAN0          ADC_CHANNEL_0
+#else
+#define ADC2_CHAN0          ADC_CHANNEL_0
 #endif
-    void
-    ADCSensor::setup() {
+#endif  //#if EXAMPLE_USE_ADC
+
+#define ADC_ATTEN           ADC_ATTEN_DB_12   // The input voltage of ADC will be attenuated extending the range of measurement by about 12 dB.
+
+static int adc_raw[2][10];
+static int voltage[2][10];
+static bool adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
+static void adc_calibration_deinit(adc_cali_handle_t handle);
+
+void ADCSensor::setup() {
   ESP_LOGCONFIG(TAG, "Setting up ADC '%s'...", this->get_name().c_str());
-#if !defined(USE_ADC_SENSOR_VCC) && !defined(USE_RP2040)
-  this->pin_->setup();
-#endif
-
-#ifdef USE_ESP32
-  if (this->channel1_ != ADC1_CHANNEL_MAX) {
-    adc1_config_width(ADC_WIDTH_MAX_SOC_BITS);
-    if (!this->autorange_) {
-      adc1_config_channel_atten(this->channel1_, this->attenuation_);
-    }
-  } else if (this->channel2_ != ADC2_CHANNEL_MAX) {
-    if (!this->autorange_) {
-      adc2_config_channel_atten(this->channel2_, this->attenuation_);
-    }
-  }
-
-  // load characteristics for each attenuation
-  for (int32_t i = 0; i <= ADC_ATTEN_DB_12_COMPAT; i++) {
-    auto adc_unit = this->channel1_ != ADC1_CHANNEL_MAX ? ADC_UNIT_1 : ADC_UNIT_2;
-    auto cal_value = esp_adc_cal_characterize(adc_unit, (adc_atten_t) i, ADC_WIDTH_MAX_SOC_BITS,
-                                              1100,  // default vref
-                                              &this->cal_characteristics_[i]);
-    switch (cal_value) {
-      case ESP_ADC_CAL_VAL_EFUSE_VREF:
-        ESP_LOGV(TAG, "Using eFuse Vref for calibration");
-        break;
-      case ESP_ADC_CAL_VAL_EFUSE_TP:
-        ESP_LOGV(TAG, "Using two-point eFuse Vref for calibration");
-        break;
-      case ESP_ADC_CAL_VAL_DEFAULT_VREF:
-      default:
-        break;
-    }
-  }
-
-#endif  // USE_ESP32
-
-#ifdef USE_RP2040
-  static bool initialized = false;
-  if (!initialized) {
-    adc_init();
-    initialized = true;
-  }
-#endif
-
   ESP_LOGCONFIG(TAG, "ADC '%s' setup finished!", this->get_name().c_str());
 }
 
@@ -107,7 +76,7 @@ void ADCSensor::dump_config() {
   LOG_PIN("  Pin: ", this->pin_);
   if (this->autorange_) {
     ESP_LOGCONFIG(TAG, "  Attenuation: auto");
-  } else {
+  } /*else {
     switch (this->attenuation_) {
       case ADC_ATTEN_DB_0:
         ESP_LOGCONFIG(TAG, "  Attenuation: 0db");
@@ -125,6 +94,7 @@ void ADCSensor::dump_config() {
         break;
     }
   }
+  */
 #endif  // USE_ESP32
 
 #ifdef USE_RP2040
@@ -155,178 +125,131 @@ void ADCSensor::set_sample_count(uint8_t sample_count) {
   }
 }
 
-#ifdef USE_ESP8266
-float ADCSensor::sample() {
-  uint32_t raw = 0;
-  for (uint8_t sample = 0; sample < this->sample_count_; sample++) {
-#ifdef USE_ADC_SENSOR_VCC
-    raw += ESP.getVcc();  // NOLINT(readability-static-accessed-through-instance)
-#else
-    raw += analogRead(this->pin_->get_pin());  // NOLINT
-#endif
-  }
-  raw = (raw + (this->sample_count_ >> 1)) / this->sample_count_;  // NOLINT(clang-analyzer-core.DivideZero)
-  if (this->output_raw_) {
-    return raw;
-  }
-  return raw / 1024.0f;
-}
-#endif
-
 #ifdef USE_ESP32
-float ADCSensor::sample() {
-  if (!this->autorange_) {
-    uint32_t sum = 0;
-    for (uint8_t sample = 0; sample < this->sample_count_; sample++) {
-      int raw = -1;
-      if (this->channel1_ != ADC1_CHANNEL_MAX) {
-        raw = adc1_get_raw(this->channel1_);
-      } else if (this->channel2_ != ADC2_CHANNEL_MAX) {
-        adc2_get_raw(this->channel2_, ADC_WIDTH_MAX_SOC_BITS, &raw);
-      }
-      if (raw == -1) {
-        return NAN;
-      }
-      sum += raw;
-    }
-    sum = (sum + (this->sample_count_ >> 1)) / this->sample_count_;  // NOLINT(clang-analyzer-core.DivideZero)
-    if (this->output_raw_) {
-      return sum;
-    }
-    uint32_t mv = esp_adc_cal_raw_to_voltage(sum, &this->cal_characteristics_[(int32_t) this->attenuation_]);
-    return mv / 1000.0f;
+float ADCSensor::sample()
+{
+  
+  // https://github.com/espressif/esp-idf/blob/release/v5.2/components/hal/include/hal/adc_types.h
+  //-------------ADC1 Init---------------//
+  adc_oneshot_unit_handle_t adc1_handle;
+  adc_oneshot_unit_init_cfg_t init_config1 = {
+      .unit_id = ADC_UNIT_1,                    // Selects the ADC
+      //.clk_src = 0,                           // Selects the source clock of the ADC. If set to 0, the driver will fall back to using a default clock source
+      .ulp_mode = ADC_ULP_MODE_DISABLE,         // Sets if the ADC will be working under ULP mode.
+  };
+  ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+  
+  //-------------ADC1 Config---------------//
+  adc_oneshot_chan_cfg_t config = {
+      .atten = ADC_ATTEN_DB_12,
+      .bitwidth = ADC_BITWIDTH_DEFAULT,
+  };
+  ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_CHAN0, &config));
+  //ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_CHAN1, &config));
+  
+  //-------------ADC1 Calibration Init---------------//
+  adc_cali_handle_t adc1_cali_chan0_handle = NULL;
+  adc_cali_handle_t adc1_cali_chan1_handle = NULL;
+  bool do_calibration1_chan0 = adc_calibration_init(ADC_UNIT_1, ADC1_CHAN0, ADC_ATTEN, &adc1_cali_chan0_handle);
+  //bool do_calibration1_chan1 = adc_calibration_init(ADC_UNIT_1, ADC1_CHAN1, ADC_ATTEN, &adc1_cali_chan1_handle);
+  
+  adc_oneshot_read(adc1_handle, ADC1_CHAN0, &adc_raw[0][0]);
+  ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, ADC1_CHAN0, adc_raw[0][0]);
+  if (do_calibration1_chan0) {
+      // Convert the ADC raw result into calibrated result
+      ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan0_handle, adc_raw[0][0], &voltage[0][0]));
+      ESP_LOGI(TAG, "ADC%d Channel[%d] Calibrated Voltage: %d mV", ADC_UNIT_1 + 1, ADC1_CHAN0, voltage[0][0]);
+  }
+  
+  /*
+  ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN1, &adc_raw[0][1]));
+  ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, ADC1_CHAN1, adc_raw[0][1]);
+  if (do_calibration1_chan1) {
+      // Convert the ADC raw result into calibrated result
+      ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan1_handle, adc_raw[0][1], &voltage[0][1]));
+      ESP_LOGI(TAG, "ADC%d Channel[%d] Calibrated Voltage: %d mV", ADC_UNIT_1 + 1, ADC1_CHAN1, voltage[0][1]);
+  }
+  */
+  //Tear Down
+  ESP_ERROR_CHECK(adc_oneshot_del_unit(adc1_handle));
+  if (do_calibration1_chan0) {
+      adc_calibration_deinit(adc1_cali_chan0_handle);
+  }
+  /*
+  if (do_calibration1_chan1) {
+      adc_calibration_deinit(adc1_cali_chan1_handle);
+  }
+  */
+    uint32_t mv_scaled = voltage[0][0]; // ADC1_CHAN0
+    //uint32_t mv_scaled = voltage[0][1]; // ADC1_CHAN1
+    float result = (float)(mv_scaled) / 1000;
+    return result;
   }
 
-  int raw12 = ADC_MAX, raw6 = ADC_MAX, raw2 = ADC_MAX, raw0 = ADC_MAX;
+/*---------------------------------------------------------------
+        ADC Calibration
+---------------------------------------------------------------*/
+static bool adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle)
+{
+    adc_cali_handle_t handle = NULL;
+    esp_err_t ret = ESP_FAIL;
+    bool calibrated = false;
 
-  if (this->channel1_ != ADC1_CHANNEL_MAX) {
-    adc1_config_channel_atten(this->channel1_, ADC_ATTEN_DB_12_COMPAT);
-    raw12 = adc1_get_raw(this->channel1_);
-    if (raw12 < ADC_MAX) {
-      adc1_config_channel_atten(this->channel1_, ADC_ATTEN_DB_6);
-      raw6 = adc1_get_raw(this->channel1_);
-      if (raw6 < ADC_MAX) {
-        adc1_config_channel_atten(this->channel1_, ADC_ATTEN_DB_2_5);
-        raw2 = adc1_get_raw(this->channel1_);
-        if (raw2 < ADC_MAX) {
-          adc1_config_channel_atten(this->channel1_, ADC_ATTEN_DB_0);
-          raw0 = adc1_get_raw(this->channel1_);
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    if (!calibrated) {
+        ESP_LOGI(TAG, "calibration scheme version is %s", "Curve Fitting");
+        adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .chan = channel,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_curve_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
         }
-      }
     }
-  } else if (this->channel2_ != ADC2_CHANNEL_MAX) {
-    adc2_config_channel_atten(this->channel2_, ADC_ATTEN_DB_12_COMPAT);
-    adc2_get_raw(this->channel2_, ADC_WIDTH_MAX_SOC_BITS, &raw12);
-    if (raw12 < ADC_MAX) {
-      adc2_config_channel_atten(this->channel2_, ADC_ATTEN_DB_6);
-      adc2_get_raw(this->channel2_, ADC_WIDTH_MAX_SOC_BITS, &raw6);
-      if (raw6 < ADC_MAX) {
-        adc2_config_channel_atten(this->channel2_, ADC_ATTEN_DB_2_5);
-        adc2_get_raw(this->channel2_, ADC_WIDTH_MAX_SOC_BITS, &raw2);
-        if (raw2 < ADC_MAX) {
-          adc2_config_channel_atten(this->channel2_, ADC_ATTEN_DB_0);
-          adc2_get_raw(this->channel2_, ADC_WIDTH_MAX_SOC_BITS, &raw0);
+#endif
+
+#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    if (!calibrated) {
+        ESP_LOGI(TAG, "calibration scheme version is %s", "Line Fitting");
+        adc_cali_line_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_line_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
         }
-      }
     }
-  }
+#endif
 
-  if (raw0 == -1 || raw2 == -1 || raw6 == -1 || raw12 == -1) {
-    return NAN;
-  }
+    *out_handle = handle;
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Calibration Success");
+    } else if (ret == ESP_ERR_NOT_SUPPORTED || !calibrated) {
+        ESP_LOGW(TAG, "eFuse not burnt, skip software calibration");
+    } else {
+        ESP_LOGE(TAG, "Invalid arg or no memory");
+    }
 
-  uint32_t mv12 = esp_adc_cal_raw_to_voltage(raw12, &this->cal_characteristics_[(int32_t) ADC_ATTEN_DB_12_COMPAT]);
-  uint32_t mv6 = esp_adc_cal_raw_to_voltage(raw6, &this->cal_characteristics_[(int32_t) ADC_ATTEN_DB_6]);
-  uint32_t mv2 = esp_adc_cal_raw_to_voltage(raw2, &this->cal_characteristics_[(int32_t) ADC_ATTEN_DB_2_5]);
-  uint32_t mv0 = esp_adc_cal_raw_to_voltage(raw0, &this->cal_characteristics_[(int32_t) ADC_ATTEN_DB_0]);
+    return calibrated;
+}
 
-  // Contribution of each value, in range 0-2048 (12 bit ADC) or 0-4096 (13 bit ADC)
-  uint32_t c12 = std::min(raw12, ADC_HALF);
-  uint32_t c6 = ADC_HALF - std::abs(raw6 - ADC_HALF);
-  uint32_t c2 = ADC_HALF - std::abs(raw2 - ADC_HALF);
-  uint32_t c0 = std::min(ADC_MAX - raw0, ADC_HALF);
-  // max theoretical csum value is 4096*4 = 16384
-  uint32_t csum = c12 + c6 + c2 + c0;
+static void adc_calibration_deinit(adc_cali_handle_t handle)
+{
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    ESP_LOGI(TAG, "deregister %s calibration scheme", "Curve Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_curve_fitting(handle));
 
-  // each mv is max 3900; so max value is 3900*4096*4, fits in unsigned32
-  uint32_t mv_scaled = (mv12 * c12) + (mv6 * c6) + (mv2 * c2) + (mv0 * c0);
-  return mv_scaled / (float) (csum * 1000U);
+#elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    ESP_LOGI(TAG, "deregister %s calibration scheme", "Line Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_line_fitting(handle));
+#endif
 }
 #endif  // USE_ESP32
-
-#ifdef USE_RP2040
-float ADCSensor::sample() {
-  if (this->is_temperature_) {
-    adc_set_temp_sensor_enabled(true);
-    delay(1);
-    adc_select_input(4);
-    uint32_t raw = 0;
-    for (uint8_t sample = 0; sample < this->sample_count_; sample++) {
-      raw += adc_read();
-    }
-    raw = (raw + (this->sample_count_ >> 1)) / this->sample_count_;  // NOLINT(clang-analyzer-core.DivideZero)
-    adc_set_temp_sensor_enabled(false);
-    if (this->output_raw_) {
-      return raw;
-    }
-    return raw * 3.3f / 4096.0f;
-  } else {
-    uint8_t pin = this->pin_->get_pin();
-#ifdef CYW43_USES_VSYS_PIN
-    if (pin == PICO_VSYS_PIN) {
-      // Measuring VSYS on Raspberry Pico W needs to be wrapped with
-      // `cyw43_thread_enter()`/`cyw43_thread_exit()` as discussed in
-      // https://github.com/raspberrypi/pico-sdk/issues/1222, since Wifi chip and
-      // VSYS ADC both share GPIO29
-      cyw43_thread_enter();
-    }
-#endif  // CYW43_USES_VSYS_PIN
-
-    adc_gpio_init(pin);
-    adc_select_input(pin - 26);
-
-    uint32_t raw = 0;
-    for (uint8_t sample = 0; sample < this->sample_count_; sample++) {
-      raw += adc_read();
-    }
-    raw = (raw + (this->sample_count_ >> 1)) / this->sample_count_;  // NOLINT(clang-analyzer-core.DivideZero)
-
-#ifdef CYW43_USES_VSYS_PIN
-    if (pin == PICO_VSYS_PIN) {
-      cyw43_thread_exit();
-    }
-#endif  // CYW43_USES_VSYS_PIN
-
-    if (this->output_raw_) {
-      return raw;
-    }
-    float coeff = pin == PICO_VSYS_PIN ? 3.0 : 1.0;
-    return raw * 3.3f / 4096.0f * coeff;
-  }
-}
-#endif
-
-#ifdef USE_LIBRETINY
-float ADCSensor::sample() {
-  uint32_t raw = 0;
-  if (this->output_raw_) {
-    for (uint8_t sample = 0; sample < this->sample_count_; sample++) {
-      raw += analogRead(this->pin_->get_pin());  // NOLINT
-    }
-    raw = (raw + (this->sample_count_ >> 1)) / this->sample_count_;  // NOLINT(clang-analyzer-core.DivideZero)
-    return raw;
-  }
-  for (uint8_t sample = 0; sample < this->sample_count_; sample++) {
-    raw += analogReadVoltage(this->pin_->get_pin());  // NOLINT
-  }
-  raw = (raw + (this->sample_count_ >> 1)) / this->sample_count_;  // NOLINT(clang-analyzer-core.DivideZero)
-  return raw / 1000.0f;
-}
-#endif  // USE_LIBRETINY
-
-#ifdef USE_ESP8266
-std::string ADCSensor::unique_id() { return get_mac_address() + "-adc"; }
-#endif
 
 }  // namespace adc
 }  // namespace esphome
